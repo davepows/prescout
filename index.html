@@ -958,7 +958,7 @@ function getTeamStats(num) {
       if (a.videos.length && !b.videos.length) return -1;
       return b.score - a.score;
     })
-    .slice(0, 8);
+    .slice(0, 3);
 
   // Worst matches w/ video preferred
   const worstMatches = [...matches]
@@ -967,7 +967,7 @@ function getTeamStats(num) {
       if (a.videos.length && !b.videos.length) return -1;
       return a.score - b.score;  // ascending — lowest first
     })
-    .slice(0, 5);
+    .slice(0, 3);
 
   return {
     num, opr, dpr, ccwm, ranking,
@@ -1753,6 +1753,31 @@ function renderCombinedScoutData(num) {
     </div>`;
   }
 
+  // --- CONTRIBUTION PROFILE BAR (single-source views only) ---
+  let contribBarHtml = '';
+  if (view !== 'combined') {
+    const d = view === '1073' ? d1 : d2eff;
+    const barTotal = d.avgTotal || 1;
+    const aP = Math.min(100, (d.avgAuto / barTotal) * 100);
+    const tP = Math.min(100 - aP, (d.avgTele / barTotal) * 100);
+    const cVal = view === '1073' ? (d.avgEnd || 0) : (d.avgClimb || 0);
+    const cP = Math.min(100 - aP - tP, (cVal / barTotal) * 100);
+    const cLabel = view === '1073' ? 'End' : 'Climb';
+    contribBarHtml = `
+    <div style="margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;">
+      <div style="display:flex;gap:14px;font-size:10px;font-weight:700;margin-bottom:5px;">
+        <span style="color:#60a5fa;">Auto ${fmt(d.avgAuto)}</span>
+        <span style="color:#a78bfa;">Tele ${fmt(d.avgTele)}</span>
+        ${cVal > 0 ? `<span style="color:#F5A623;">${cLabel} ${fmt(cVal)}</span>` : ''}
+      </div>
+      <div style="height:10px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,0.06);display:flex;gap:1px;">
+        <div style="width:${aP}%;background:#60a5fa;"></div>
+        <div style="width:${tP}%;background:#a78bfa;"></div>
+        ${cVal > 0 ? `<div style="width:${cP}%;background:#F5A623;"></div>` : ''}
+      </div>
+    </div>`;
+  }
+
   // --- MATCH ROWS ---
   let matchRowsHtml = '';
   const matchSource = (view === 'combined' || view === '6328') && d2 ? '6328'
@@ -1761,35 +1786,120 @@ function renderCombinedScoutData(num) {
 
   if (matchSource === '1073') {
     const fmt2 = v => v % 1 === 0 ? v : v.toFixed(1);
-    matchRowsHtml = d1.matches.map((m,i) => `
-    <div class="scout-match-row">
-      <span class="scout-match-num">Match ${i+1}</span>
-      <span class="scout-match-seg" style="color:#60a5fa;">${fmt2(m.auto)} auto</span>
-      <span class="scout-match-seg" style="color:#a78bfa;">${fmt2(m.tele)} tele</span>
-      ${m.end > 0 ? `<span class="scout-match-seg" style="color:var(--gold);">${fmt2(m.end)} end</span>` : ''}
-      <span class="scout-match-total">${fmt2(m.total)}</span>
-    </div>`).join('');
-  } else if (matchSource === '6328') {
-    matchRowsHtml = d2Matches.map(m => {
-      const stateStyle = m.state && m.state !== 'No Issue' && m.state !== '' ? 'color:#f87171;' : 'color:var(--muted);';
-      const commentHtml = m.comment ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;font-style:italic;">${escHtml(m.comment)}</div>` : '';
-      const eventBadge = showEventBadge && m.event ? `<span style="font-size:10px;color:var(--muted);background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:4px;white-space:nowrap;">${m.event.toUpperCase()}</span>` : '';
-      return `<div style="background:rgba(255,255,255,0.03);border-radius:7px;padding:7px 10px;margin-bottom:5px;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span style="font-size:12px;font-weight:700;color:#a78bfa;white-space:nowrap;">M${escHtml(m.match)}</span>
-          ${eventBadge}
-          <span style="font-size:12px;font-weight:700;color:var(--text);">${rnd(m.total)} pts</span>
-          ${m.state&&m.state!=='No Issue'&&m.state!==''?`<span style="font-size:11px;${stateStyle};flex:1;text-align:right;white-space:nowrap;">${escHtml(m.state)}</span>`:'<span style="flex:1;"></span>'}
-          ${m.driver!=null?`<span style="font-size:11px;color:var(--muted);white-space:nowrap;">⭐ ${m.driver.toFixed(1)}</span>`:''}
+    const scaleMax = d1.peak || 1;
+    matchRowsHtml = d1.matches.map(m => {
+      const aW = Math.min(100, (m.auto / scaleMax) * 100);
+      const tW = Math.min(100 - aW, (m.tele / scaleMax) * 100);
+      const eW = Math.min(100 - aW - tW, (m.end / scaleMax) * 100);
+      return `
+    <div style="background:rgba(255,255,255,0.03);border-radius:7px;padding:7px 10px;margin-bottom:5px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <div style="flex:1;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);display:flex;">
+          <div style="width:${aW}%;background:#60a5fa;" title="Auto: ${fmt2(m.auto)}"></div>
+          <div style="width:${tW}%;background:#a78bfa;" title="Tele: ${fmt2(m.tele)}"></div>
+          ${m.end > 0 ? `<div style="width:${eW}%;background:#F5A623;" title="End: ${fmt2(m.end)}"></div>` : ''}
         </div>
-        <div style="display:flex;gap:10px;margin-top:3px;font-size:11px;color:var(--muted);">
-          <span>Auto <b style="color:var(--text);">${rnd(m.auto)}</b>${m.autoPct>0?`<span style="opacity:.5;font-size:10px;"> (${m.autoPct}%)</span>`:''}</span>
-          <span>Tele <b style="color:var(--text);">${rnd(m.tele)}</b>${m.telePct>0?`<span style="opacity:.5;font-size:10px;"> (${m.telePct}%)</span>`:''}</span>
-          ${m.climb>0?`<span>Climb <b style="color:var(--text);">${rnd(m.climb)}</b></span>`:''}
+        <span style="font-size:13px;font-weight:800;color:var(--text);white-space:nowrap;width:30px;text-align:right;">${fmt2(m.total)}</span>
+      </div>
+      <div style="display:flex;gap:10px;font-size:11px;">
+        <span style="color:#60a5fa;">${fmt2(m.auto)} auto</span>
+        <span style="color:#a78bfa;">${fmt2(m.tele)} tele</span>
+        ${m.end > 0 ? `<span style="color:#F5A623;">${fmt2(m.end)} end</span>` : ''}
+      </div>
+    </div>`;
+    }).join('');
+  } else if (matchSource === '6328') {
+    const scaleMax = d2Matches.length ? Math.max(...d2Matches.map(m => m.total), 1) : 1;
+    matchRowsHtml = d2Matches.map(m => {
+      const hasIssue = m.state && m.state !== 'No Issue' && m.state !== '';
+      const commentHtml = m.comment ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;font-style:italic;padding-left:50px;">${escHtml(m.comment)}</div>` : '';
+      const eventBadge = showEventBadge && m.event ? `<span style="font-size:10px;color:var(--muted);background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:4px;white-space:nowrap;">${m.event.toUpperCase()}</span>` : '';
+      const stateBadge = hasIssue ? `<span style="font-size:10px;font-weight:700;background:rgba(248,113,113,0.15);color:#f87171;padding:2px 7px;border-radius:4px;white-space:nowrap;">${escHtml(m.state)}</span>` : '';
+      const driverBadge = m.driver != null ? `<span style="font-size:10px;font-weight:700;background:rgba(245,166,35,0.1);color:var(--gold);padding:2px 7px;border-radius:4px;white-space:nowrap;">⭐ ${m.driver.toFixed(1)}</span>` : '';
+      const aW = Math.min(100, (m.auto / scaleMax) * 100);
+      const tW = Math.min(100 - aW, (m.tele / scaleMax) * 100);
+      const cW = Math.min(100 - aW - tW, (m.climb / scaleMax) * 100);
+      return `<div style="background:${hasIssue ? 'rgba(248,113,113,0.05)' : 'rgba(255,255,255,0.03)'};border-radius:7px;padding:7px 10px;margin-bottom:5px;${hasIssue ? 'border:1px solid rgba(248,113,113,0.15);' : ''}">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+          <span style="font-size:12px;font-weight:700;color:#a78bfa;white-space:nowrap;width:44px;">M${escHtml(m.match)}</span>
+          ${eventBadge}
+          <div style="flex:1;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);display:flex;">
+            <div style="width:${aW}%;background:#60a5fa;" title="Auto: ${rnd(m.auto)}"></div>
+            <div style="width:${tW}%;background:#a78bfa;" title="Tele: ${rnd(m.tele)}"></div>
+            ${m.climb > 0 ? `<div style="width:${cW}%;background:#F5A623;" title="Climb: ${rnd(m.climb)}"></div>` : ''}
+          </div>
+          <span style="font-size:13px;font-weight:800;color:var(--text);white-space:nowrap;width:30px;text-align:right;">${rnd(m.total)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-left:50px;">
+          <span style="font-size:11px;color:#60a5fa;">${rnd(m.auto)} auto</span>
+          <span style="font-size:11px;color:#a78bfa;">${rnd(m.tele)} tele</span>
+          ${m.climb > 0 ? `<span style="font-size:11px;color:#F5A623;">${rnd(m.climb)} climb</span>` : ''}
+          <span style="flex:1;"></span>
+          ${stateBadge}
+          ${driverBadge}
         </div>
         ${commentHtml}
       </div>`;
     }).join('') || '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No matches for this event.</div>';
+  }
+
+  // --- SEASON PROGRESSION CHART ---
+  // Show when 6328 data has 2+ events and "All Events" is selected
+  let seasonChartHtml = '';
+  if (d2 && (view === '6328' || view === 'combined') && (!S.eventFilter || S.eventFilter === 'all')) {
+    const allEvents6328 = [...new Set(d2.matches.map(m => m.event).filter(Boolean))].sort();
+    if (allEvents6328.length > 1) {
+      const byEvent = {};
+      for (const m of d2.matches) {
+        const ev = m.event || 'unknown';
+        if (!byEvent[ev]) byEvent[ev] = [];
+        byEvent[ev].push(m);
+      }
+      // Sort matches within each event by match number
+      for (const ev of allEvents6328) {
+        byEvent[ev].sort((a, b) => (parseInt(a.match) || 0) - (parseInt(b.match) || 0));
+      }
+      const chartScaleMax = Math.max(...d2.matches.map(m => m.total), 1);
+      const chartH = 72;
+      const eventGroupsHtml = allEvents6328.map(ev => {
+        const evMatches = byEvent[ev] || [];
+        const evAvg = evMatches.reduce((s, m) => s + m.total, 0) / (evMatches.length || 1);
+        const barsHtml = evMatches.map(m => {
+          const aH = Math.max(0, Math.round((m.auto  / chartScaleMax) * chartH));
+          const tH = Math.max(0, Math.round((m.tele  / chartScaleMax) * chartH));
+          const cH = Math.max(0, Math.round((m.climb / chartScaleMax) * chartH));
+          const hasIssue = m.state && m.state !== 'No Issue' && m.state !== '';
+          const tipText = `M${m.match}: ${Math.round(m.total)}pts | Auto ${Math.round(m.auto)} Tele ${Math.round(m.tele)} Climb ${Math.round(m.climb)}${hasIssue ? ' ⚠ ' + m.state : ''}`;
+          return `<div title="${tipText}" style="display:flex;flex-direction:column-reverse;height:${chartH}px;width:14px;flex-shrink:0;gap:1px;cursor:default;">
+            <div style="height:${aH}px;background:#60a5fa;min-height:${aH>0?'1px':'0'};"></div>
+            <div style="height:${tH}px;background:#a78bfa;min-height:${tH>0?'1px':'0'};"></div>
+            ${cH > 0 ? `<div style="height:${cH}px;background:#F5A623;"></div>` : ''}
+            ${hasIssue ? `<div style="position:absolute;bottom:0;left:0;right:0;height:2px;background:#f87171;"></div>` : ''}
+          </div>`;
+        }).join('<div style="width:2px;flex-shrink:0;"></div>');
+        const evShort = ev.toUpperCase().replace(/^\d{4}/, '').replace(/^[A-Z]{2}/, m => m + ' ').trim().substring(0, 10);
+        return `<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+          <div style="display:flex;gap:0;align-items:flex-end;position:relative;">${barsHtml}</div>
+          <div style="font-size:9px;font-weight:700;color:var(--muted);letter-spacing:.04em;text-align:center;padding-top:2px;border-top:1px solid rgba(255,255,255,0.08);">${evShort}</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.3);text-align:center;">avg ${Math.round(evAvg)}</div>
+        </div>`;
+      }).join('<div style="width:10px;flex-shrink:0;border-left:1px dashed rgba(255,255,255,0.08);margin:0 4px;"></div>');
+
+      seasonChartHtml = `
+      <div style="margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Season Progression</span>
+          <div style="display:flex;gap:8px;font-size:9px;font-weight:700;">
+            <span style="color:#60a5fa;">■ Auto</span>
+            <span style="color:#a78bfa;">■ Tele</span>
+            <span style="color:#F5A623;">■ Climb</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:0;overflow-x:auto;padding-bottom:2px;">
+          ${eventGroupsHtml}
+        </div>
+      </div>`;
+    }
   }
 
   const borderColor = view==='1073' ? 'rgba(34,197,94,0.2)' : view==='6328' ? 'rgba(167,139,250,0.2)' : 'rgba(245,166,35,0.2)';
@@ -1805,6 +1915,8 @@ function renderCombinedScoutData(num) {
     <div style="background:var(--card);border-radius:12px;padding:16px;border:1px solid ${borderColor};">
       ${eventTabsHtml}
       ${tilesHtml}
+      ${contribBarHtml}
+      ${seasonChartHtml}
       ${matchRowsHtml ? `
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">${showMatchHeader&&matchSource?matchLabel:'Match Breakdown'}</div>
       <div>${matchRowsHtml}</div>` : ''}

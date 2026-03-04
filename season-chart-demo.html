@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Season Progression Chart — Demo</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #F5A623; --navy: #1A2744; --bg: #0e1726;
+      --card: #1a2d52; --border: rgba(255,255,255,0.08);
+      --text: #F4F4EE; --muted: rgba(244,244,238,0.45);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); font-family: 'Barlow', Arial, sans-serif;
+      color: var(--text); min-height: 100vh; padding: 32px 24px;
+    }
+    h2 {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 13px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
+      color: var(--muted); margin-bottom: 20px;
+    }
+    .demo-row {
+      display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 40px;
+    }
+    .demo-card {
+      flex: 1; min-width: 320px; max-width: 540px;
+      background: var(--card); border-radius: 14px;
+      padding: 20px; border: 1px solid var(--border);
+    }
+    .team-header {
+      display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px;
+    }
+    .team-num {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 26px;
+      font-weight: 800; color: var(--gold);
+    }
+    .team-name {
+      font-size: 13px; color: var(--muted); font-weight: 600;
+    }
+    .section-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); margin-bottom: 8px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .legend { display: flex; gap: 8px; }
+    .legend span { font-size: 9px; font-weight: 700; }
+
+    /* ── CHART ── */
+    .chart-wrap {
+      background: rgba(255,255,255,0.03); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 12px;
+    }
+    .chart-body {
+      display: flex; align-items: flex-end; gap: 0;
+      overflow-x: auto; padding-bottom: 2px;
+    }
+    .event-group { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+    .event-bars { display: flex; gap: 0; align-items: flex-end; }
+    .bar-col {
+      display: flex; flex-direction: column-reverse;
+      height: 72px; width: 14px; flex-shrink: 0; gap: 1px; cursor: default;
+    }
+    .bar-auto  { background: #60a5fa; }
+    .bar-tele  { background: #a78bfa; }
+    .bar-climb { background: #F5A623; }
+    .bar-spacer { width: 2px; flex-shrink: 0; }
+    .event-divider {
+      width: 10px; flex-shrink: 0;
+      border-left: 1px dashed rgba(255,255,255,0.08);
+      margin: 0 4px; align-self: stretch;
+    }
+    .event-footer {
+      font-size: 9px; font-weight: 700; color: var(--muted);
+      letter-spacing: .04em; text-align: center;
+      padding-top: 2px; border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .event-avg {
+      font-size: 9px; color: rgba(255,255,255,0.3); text-align: center;
+    }
+
+    /* ── CONTRIB BAR ── */
+    .contrib-wrap {
+      background: rgba(255,255,255,0.03); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 12px;
+    }
+    .contrib-labels {
+      display: flex; gap: 14px; font-size: 10px; font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .contrib-bar {
+      height: 10px; border-radius: 5px; overflow: hidden;
+      background: rgba(255,255,255,0.06); display: flex; gap: 1px;
+    }
+
+    /* ── MATCH ROWS ── */
+    .match-row {
+      background: rgba(255,255,255,0.03); border-radius: 7px;
+      padding: 7px 10px; margin-bottom: 5px;
+    }
+    .match-row.has-issue {
+      background: rgba(248,113,113,0.05);
+      border: 1px solid rgba(248,113,113,0.15);
+    }
+    .match-top {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 5px;
+    }
+    .match-id {
+      font-size: 12px; font-weight: 700; color: #a78bfa;
+      white-space: nowrap; width: 44px;
+    }
+    .match-bar-wrap {
+      flex: 1; height: 8px; border-radius: 4px; overflow: hidden;
+      background: rgba(255,255,255,0.06); display: flex;
+    }
+    .match-total {
+      font-size: 13px; font-weight: 800; color: var(--text);
+      white-space: nowrap; width: 30px; text-align: right;
+    }
+    .match-detail {
+      display: flex; align-items: center; gap: 6px;
+      flex-wrap: wrap; padding-left: 50px; font-size: 11px;
+    }
+    .pill-issue {
+      font-size: 10px; font-weight: 700;
+      background: rgba(248,113,113,0.15); color: #f87171;
+      padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+    }
+    .pill-driver {
+      font-size: 10px; font-weight: 700;
+      background: rgba(245,166,35,0.1); color: var(--gold);
+      padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+    }
+    .event-badge {
+      font-size: 10px; color: var(--muted);
+      background: rgba(255,255,255,0.06);
+      padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+    }
+    .comment {
+      font-size: 11px; color: var(--muted); margin-top: 4px;
+      font-style: italic; padding-left: 50px;
+    }
+    .scenario-label {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 11px;
+      font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: rgba(245,166,35,0.6); margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Season Progression Chart — Mock Data</h2>
+
+<div class="demo-row">
+
+  <!-- ── SCENARIO 1: Steady improvement ── -->
+  <div class="demo-card">
+    <div class="scenario-label">Scenario A — Steady Improvement</div>
+    <div class="team-header">
+      <span class="team-num">1234</span>
+      <span class="team-name">RoboEagles</span>
+    </div>
+
+    <!-- Contribution profile bar -->
+    <div class="contrib-wrap">
+      <div class="contrib-labels">
+        <span style="color:#60a5fa;">Auto 14.2</span>
+        <span style="color:#a78bfa;">Tele 38.6</span>
+        <span style="color:#F5A623;">Climb 8.1</span>
+      </div>
+      <div class="contrib-bar">
+        <div style="width:23%;background:#60a5fa;"></div>
+        <div style="width:64%;background:#a78bfa;"></div>
+        <div style="width:13%;background:#F5A623;"></div>
+      </div>
+    </div>
+
+    <!-- Season chart -->
+    <div class="chart-wrap">
+      <div class="section-label">
+        Season Progression
+        <div class="legend">
+          <span style="color:#60a5fa;">■ Auto</span>
+          <span style="color:#a78bfa;">■ Tele</span>
+          <span style="color:#F5A623;">■ Climb</span>
+        </div>
+      </div>
+      <div class="chart-body" id="chart-a"></div>
+    </div>
+
+    <!-- Match list (all events) -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">6328 Match Breakdown</div>
+    <div id="rows-a"></div>
+  </div>
+
+  <!-- ── SCENARIO 2: Strong first event, rough second ── -->
+  <div class="demo-card">
+    <div class="scenario-label">Scenario B — Strong Start, Rough Second</div>
+    <div class="team-header">
+      <span class="team-num">5678</span>
+      <span class="team-name">Iron Phoenix</span>
+    </div>
+
+    <div class="contrib-wrap">
+      <div class="contrib-labels">
+        <span style="color:#60a5fa;">Auto 18.5</span>
+        <span style="color:#a78bfa;">Tele 44.2</span>
+        <span style="color:#F5A623;">Climb 0</span>
+      </div>
+      <div class="contrib-bar">
+        <div style="width:29%;background:#60a5fa;"></div>
+        <div style="width:69%;background:#a78bfa;"></div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="section-label">
+        Season Progression
+        <div class="legend">
+          <span style="color:#60a5fa;">■ Auto</span>
+          <span style="color:#a78bfa;">■ Tele</span>
+          <span style="color:#F5A623;">■ Climb</span>
+        </div>
+      </div>
+      <div class="chart-body" id="chart-b"></div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">6328 Match Breakdown</div>
+    <div id="rows-b"></div>
+  </div>
+
+</div>
+
+<script>
+// ── MOCK DATA ──────────────────────────────────────────────────────
+
+const MOCK_A = {
+  events: {
+    '2026mabil': [
+      { match:'1',  auto:10, tele:28, climb:0,  total:38, driver:3, state:'',         comment:'' },
+      { match:'4',  auto:12, tele:30, climb:6,  total:48, driver:3, state:'',         comment:'' },
+      { match:'7',  auto:14, tele:31, climb:6,  total:51, driver:4, state:'',         comment:'' },
+      { match:'11', auto:13, tele:29, climb:0,  total:42, driver:3, state:'Tippy',    comment:'Almost fell over in teleop' },
+      { match:'15', auto:14, tele:33, climb:6,  total:53, driver:4, state:'',         comment:'' },
+      { match:'18', auto:15, tele:35, climb:6,  total:56, driver:4, state:'',         comment:'Best match of event' },
+    ],
+    '2026necmp': [
+      { match:'3',  auto:14, tele:38, climb:6,  total:58, driver:4, state:'',         comment:'' },
+      { match:'6',  auto:16, tele:42, climb:6,  total:64, driver:5, state:'',         comment:'Excellent auto' },
+      { match:'9',  auto:15, tele:44, climb:12, total:71, driver:5, state:'',         comment:'' },
+      { match:'13', auto:16, tele:40, climb:12, total:68, driver:4, state:'',         comment:'' },
+      { match:'17', auto:14, tele:45, climb:12, total:71, driver:5, state:'',         comment:'Consistent climber now' },
+    ],
+  }
+};
+
+const MOCK_B = {
+  events: {
+    '2026mabil': [
+      { match:'2',  auto:20, tele:50, climb:0, total:70, driver:5, state:'',           comment:'Very fast cycle' },
+      { match:'5',  auto:18, tele:48, climb:0, total:66, driver:5, state:'',           comment:'' },
+      { match:'9',  auto:19, tele:52, climb:0, total:71, driver:5, state:'',           comment:'' },
+      { match:'12', auto:17, tele:46, climb:0, total:63, driver:4, state:'',           comment:'' },
+      { match:'16', auto:20, tele:50, climb:0, total:70, driver:5, state:'',           comment:'' },
+      { match:'19', auto:18, tele:49, climb:0, total:67, driver:5, state:'',           comment:'' },
+    ],
+    '2026nhmil': [
+      { match:'1',  auto:14, tele:35, climb:0, total:49, driver:3, state:'Disabled',   comment:'Brownout Q1, recovered' },
+      { match:'4',  auto:10, tele:28, climb:0, total:38, driver:3, state:'Mechanical', comment:'Intake jammed' },
+      { match:'8',  auto:16, tele:40, climb:0, total:56, driver:4, state:'',           comment:'Back to form' },
+      { match:'11', auto:15, tele:38, climb:0, total:53, driver:4, state:'',           comment:'' },
+      { match:'14', auto:17, tele:42, climb:0, total:59, driver:4, state:'',           comment:'' },
+    ],
+  }
+};
+
+// ── RENDER ─────────────────────────────────────────────────────────
+
+function buildChart(data, containerId) {
+  const allMatches = Object.values(data.events).flat();
+  const scaleMax = Math.max(...allMatches.map(m => m.total), 1);
+  const chartH = 72;
+  const container = document.getElementById(containerId);
+
+  const groups = Object.entries(data.events).map(([ev, matches], gi) => {
+    const avg = Math.round(matches.reduce((s, m) => s + m.total, 0) / matches.length);
+
+    const barsHtml = matches.map((m, i) => {
+      const aH = Math.max(0, Math.round((m.auto  / scaleMax) * chartH));
+      const tH = Math.max(0, Math.round((m.tele  / scaleMax) * chartH));
+      const cH = Math.max(0, Math.round((m.climb / scaleMax) * chartH));
+      const hasIssue = m.state && m.state !== '';
+      const tip = `M${m.match}: ${m.total}pts | Auto ${m.auto} Tele ${m.tele} Climb ${m.climb}${hasIssue?' ⚠ '+m.state:''}`;
+
+      const col = document.createElement('div');
+      col.className = 'bar-col';
+      col.title = tip;
+      col.style.height = chartH + 'px';
+      if (aH) { const s = document.createElement('div'); s.className='bar-auto'; s.style.height=aH+'px'; col.appendChild(s); }
+      if (tH) { const s = document.createElement('div'); s.className='bar-tele'; s.style.height=tH+'px'; col.appendChild(s); }
+      if (cH) { const s = document.createElement('div'); s.className='bar-climb'; s.style.height=cH+'px'; col.appendChild(s); }
+
+      const spacer = document.createElement('div');
+      spacer.className = 'bar-spacer';
+      return [col, spacer];
+    }).flat();
+
+    const evShort = ev.toUpperCase().replace(/^\d{4}/, '').replace(/^([A-Z]{2})/, '$1 ').trim().substring(0, 10);
+
+    const group = document.createElement('div');
+    group.className = 'event-group';
+
+    const barsRow = document.createElement('div');
+    barsRow.className = 'event-bars';
+    barsHtml.forEach(el => barsRow.appendChild(el));
+
+    const footer = document.createElement('div');
+    footer.className = 'event-footer';
+    footer.textContent = evShort;
+
+    const avgEl = document.createElement('div');
+    avgEl.className = 'event-avg';
+    avgEl.textContent = 'avg ' + avg;
+
+    group.appendChild(barsRow);
+    group.appendChild(footer);
+    group.appendChild(avgEl);
+    container.appendChild(group);
+
+    // divider between events
+    if (gi < Object.keys(data.events).length - 1) {
+      const div = document.createElement('div');
+      div.className = 'event-divider';
+      container.appendChild(div);
+    }
+  });
+}
+
+function buildRows(data, containerId) {
+  const container = document.getElementById(containerId);
+  const allMatches = Object.entries(data.events).flatMap(([ev, ms]) => ms.map(m => ({ ...m, event: ev })));
+  const scaleMax = Math.max(...allMatches.map(m => m.total), 1);
+
+  allMatches.forEach(m => {
+    const hasIssue = m.state && m.state !== '';
+    const aW = Math.min(100, (m.auto  / scaleMax) * 100);
+    const tW = Math.min(100 - aW, (m.tele  / scaleMax) * 100);
+    const cW = Math.min(100 - aW - tW, (m.climb / scaleMax) * 100);
+
+    const evShort = m.event.toUpperCase().replace(/^\d{4}/, '');
+
+    const row = document.createElement('div');
+    row.className = 'match-row' + (hasIssue ? ' has-issue' : '');
+
+    row.innerHTML = `
+      <div class="match-top">
+        <span class="match-id">M${m.match}</span>
+        <span class="event-badge">${evShort}</span>
+        <div class="match-bar-wrap">
+          <div style="width:${aW}%;background:#60a5fa;" title="Auto: ${m.auto}"></div>
+          <div style="width:${tW}%;background:#a78bfa;" title="Tele: ${m.tele}"></div>
+          ${cW > 0 ? `<div style="width:${cW}%;background:#F5A623;" title="Climb: ${m.climb}"></div>` : ''}
+        </div>
+        <span class="match-total">${m.total}</span>
+      </div>
+      <div class="match-detail">
+        <span style="color:#60a5fa;">${m.auto} auto</span>
+        <span style="color:#a78bfa;">${m.tele} tele</span>
+        ${m.climb > 0 ? `<span style="color:#F5A623;">${m.climb} climb</span>` : ''}
+        <span style="flex:1;"></span>
+        ${hasIssue ? `<span class="pill-issue">${m.state}</span>` : ''}
+        ${m.driver != null ? `<span class="pill-driver">⭐ ${m.driver.toFixed(1)}</span>` : ''}
+      </div>
+      ${m.comment ? `<div class="comment">${m.comment}</div>` : ''}
+    `;
+    container.appendChild(row);
+  });
+}
+
+buildChart(MOCK_A, 'chart-a');
+buildChart(MOCK_B, 'chart-b');
+buildRows(MOCK_A, 'rows-a');
+buildRows(MOCK_B, 'rows-b');
+</script>
+</body>
+</html>
