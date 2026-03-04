@@ -1598,95 +1598,81 @@ function exportNotes() {
   URL.revokeObjectURL(url);
 }
 
-
-// ════════════════════════════════════════════════════
-//  1073 SCOUT CSV
-// ════════════════════════════════════════════════════
-function loadScoutCSV(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try { parseScoutCSV(e.target.result); }
-    catch(err) {
-      const el = document.getElementById('scout-csv-status');
-      if (el) el.textContent = '⚠ Failed to parse: ' + err.message;
-    }
-  };
-  reader.readAsText(file, 'UTF-16');
-}
-
-function parseScoutCSV(text) {
-  const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim().split('\n');
-  if (lines.length < 2) throw new Error('No data rows');
-  const delim = lines[0].includes('\t') ? '\t' : ',';
-  const headers = lines[0].split(delim).map(h => h.trim());
-  const ci = name => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-  const teamIdx  = ci('team');
-  const autoFuel = ci('auto fuel');
-  const autoClmb = ci('auto climb');
-  const teleFuel = ci('tele fuel');
-  const endClmb  = ci('endgame climb');
-  const totalIdx = ci('total points');
-  if (teamIdx === -1) throw new Error('No Team column');
-  const agg = {};
-  for (let i = 1; i < lines.length; i++) {
-    const row = lines[i].split(delim).map(c => c.trim());
-    const num = parseInt(row[teamIdx]);
-    if (isNaN(num)) continue;
-    const auto  = (autoFuel >= 0 ? +row[autoFuel]||0 : 0) + (autoClmb >= 0 ? +row[autoClmb]||0 : 0);
-    const tele  = teleFuel >= 0 ? +row[teleFuel]||0 : 0;
-    const end   = endClmb  >= 0 ? +row[endClmb] ||0 : 0;
-    const total = totalIdx >= 0 ? +row[totalIdx]||0 : 0;
-    if (!agg[num]) agg[num] = { auto:[], tele:[], end:[], total:[] };
-    agg[num].auto.push(auto); agg[num].tele.push(tele);
-    agg[num].end.push(end);   agg[num].total.push(total);
-  }
-  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
-  const result = {};
-  for (const [num, d] of Object.entries(agg)) {
-    result[+num] = {
-      matchCount: d.total.length,
-      avgAuto: avg(d.auto), avgTele: avg(d.tele),
-      avgEnd:  avg(d.end),  avgTotal: avg(d.total),
-      peak: Math.max(...d.total),
-      matches: d.total.map((tot,i) => ({ match:i+1, auto:d.auto[i], tele:d.tele[i], end:d.end[i], total:tot })),
-    };
-  }
-  S.scoutData = result;
-  const count = Object.keys(result).length;
-  const total = Object.values(result).reduce((s,t)=>s+t.matchCount,0);
-  const el = document.getElementById('scout-csv-status');
-  if (el) { el.textContent = `✓ Loaded ${count} teams · ${total} match records`; el.style.color='#22c55e'; }
-}
-
 function renderCombinedScoutData(num) {
-  const d1 = S.scoutData[num];      // 1073
-  const d2 = S.ownScoutData[num];   // 6328
+  const d1 = S.scoutData[num];      // 1073 aggregated
+  const d2 = S.ownScoutData[num];   // 6328 per-match
   if (!d1 && !d2) return '';
 
   const hasBoth = !!(d1 && d2);
-  // Effective view: if only one source exists, always show that one
   const view = hasBoth ? (S.scoutView || 'combined') : (d1 ? '1073' : '6328');
 
   const fmt = v => (v == null ? '—' : (v % 1 === 0 ? v : v.toFixed(1)));
   const rnd = v => v == null ? '—' : Math.round(v);
 
-  // --- TAB BAR ---
+  // --- EVENT TABS (only for 6328 per-match data with multiple events) ---
+  let eventTabsHtml = '';
+  let filteredD2 = d2;       // stats recomputed for current event filter
+  let d2Matches = d2 ? d2.matches : [];
+
+  if (d2) {
+    const allEvents = [...new Set(d2.matches.map(m => m.event).filter(Boolean))].sort();
+    // Auto-reset filter if it no longer applies to this team
+    if (S.eventFilter && S.eventFilter !== 'all' && !allEvents.includes(S.eventFilter)) {
+      S.eventFilter = 'all';
+    }
+    if (allEvents.length > 1) {
+      const ef = S.eventFilter || 'all';
+      if (ef !== 'all') {
+        const filtered = d2.matches.filter(m => m.event === ef);
+        d2Matches = filtered;
+        if (filtered.length) {
+          const n = filtered.length;
+          const avg = fn => filtered.reduce((s,m) => s + fn(m), 0) / n;
+          const drs = filtered.map(m => m.driver).filter(v => v != null);
+          filteredD2 = {
+            matchCount: n,
+            avgAuto:   avg(m => m.auto),
+            avgTele:   avg(m => m.tele),
+            avgClimb:  avg(m => m.climb),
+            avgTotal:  avg(m => m.total),
+            peak:      Math.max(...filtered.map(m => m.total)),
+            avgDriver: drs.length ? drs.reduce((s,v) => s+v, 0) / drs.length : null,
+            matches:   filtered,
+          };
+        }
+      }
+      const evBtnStyle = key => {
+        const active = (S.eventFilter || 'all') === key;
+        return active
+          ? 'padding:3px 10px;border-radius:6px;border:1px solid var(--gold);background:rgba(245,166,35,0.12);color:var(--gold);font-size:11px;font-weight:700;cursor:pointer;'
+          : 'padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:var(--muted);font-size:11px;font-weight:700;cursor:pointer;';
+      };
+      eventTabsHtml = `
+      <div class="event-tab-row">
+        <button style="${evBtnStyle('all')}" onclick="S.eventFilter='all';render()">All Events</button>
+        ${allEvents.map(ev => {
+          const cnt = d2.matches.filter(m => m.event === ev).length;
+          return `<button style="${evBtnStyle(ev)}" onclick="S.eventFilter='${escHtml(ev)}';render()">${ev.toUpperCase()} <span style="opacity:.65;font-weight:400;">(${cnt})</span></button>`;
+        }).join('')}
+      </div>`;
+    }
+  }
+
+  // --- SOURCE VIEW TAB BAR (1073 / 6328 / Avg) ---
   const tabStyle = (t, activeColor, borderOpacity) => {
     const active = view === t;
     return `padding:4px 12px;border-radius:6px;border:1px solid ${active ? activeColor : `rgba(${borderOpacity},0.3)`};background:${active ? `rgba(${borderOpacity},0.12)` : 'transparent'};color:${active ? activeColor : 'var(--muted)'};font-size:11px;font-weight:700;letter-spacing:.04em;cursor:pointer;transition:all .15s;`;
   };
+  const d2eff = filteredD2 || d2;
   const tabsHtml = hasBoth ? `
     <div style="display:flex;gap:5px;margin-left:auto;align-items:center;">
       <button onclick="S.scoutView='1073';render()" style="${tabStyle('1073','#22c55e','34,197,94')}">1073 <span style="opacity:.65;font-weight:400;">(${d1.matchCount})</span></button>
-      <button onclick="S.scoutView='6328';render()" style="${tabStyle('6328','#a78bfa','167,139,250')}">6328 <span style="opacity:.65;font-weight:400;">(${d2.matchCount})</span></button>
+      <button onclick="S.scoutView='6328';render()" style="${tabStyle('6328','#a78bfa','167,139,250')}">6328 <span style="opacity:.65;font-weight:400;">(${d2eff.matchCount})</span></button>
       <button onclick="S.scoutView='combined';render()" style="${tabStyle('combined','var(--gold)','245,166,35')}">Avg</button>
     </div>` : '';
 
-  // Count label for title
   const countLabel = view === '1073' ? `· ${d1.matchCount} match${d1.matchCount!==1?'es':''}`
-                   : view === '6328' ? `· ${d2.matchCount} match${d2.matchCount!==1?'es':''}`
+                   : view === '6328' ? `· ${d2eff.matchCount} match${d2eff.matchCount!==1?'es':''}`
                    : '';
   const titleColor = view === '1073' ? '#22c55e' : view === '6328' ? '#a78bfa' : 'var(--gold)';
 
@@ -1694,23 +1680,20 @@ function renderCombinedScoutData(num) {
   let tilesHtml = '';
 
   if (view === 'combined' && hasBoth) {
-    // Show one row per source, side by side comparison
     const colA = 'rgba(34,197,94,0.08)';
     const colB = 'rgba(167,139,250,0.08)';
     const metrics = [
-      { label: 'Avg Auto', v1: d1.avgAuto, v2: d2.avgAuto },
-      { label: 'Avg Tele', v1: d1.avgTele, v2: d2.avgTele },
-      { label: 'Avg Total', v1: d1.avgTotal, v2: d2.avgTotal, highlight: true },
-      { label: 'Peak',     v1: d1.peak,     v2: d2.peak },
+      { label: 'Avg Auto',  v1: d1.avgAuto,  v2: d2eff.avgAuto },
+      { label: 'Avg Tele',  v1: d1.avgTele,  v2: d2eff.avgTele },
+      { label: 'Avg Total', v1: d1.avgTotal, v2: d2eff.avgTotal, highlight: true },
+      { label: 'Peak',      v1: d1.peak,      v2: d2eff.peak },
     ];
     tilesHtml = `
     <div style="margin-bottom:14px;">
-      <!-- Source legend -->
       <div style="display:flex;gap:12px;margin-bottom:8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">
         <span style="color:#22c55e;">🔎 1073</span>
         <span style="color:#a78bfa;">🏷 6328</span>
       </div>
-      <!-- Metric columns -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${metrics.map(m => `
         <div style="flex:1;min-width:70px;border-radius:8px;overflow:hidden;">
@@ -1727,8 +1710,7 @@ function renderCombinedScoutData(num) {
       </div>
     </div>`;
   } else {
-    // Single-source tile row
-    const d = view === '1073' ? d1 : d2;
+    const d = view === '1073' ? d1 : d2eff;
     const accentColor = view === '1073' ? '#22c55e' : '#a78bfa';
     const bgColor = view === '1073' ? 'rgba(34,197,94,0.08)' : 'rgba(167,139,250,0.08)';
     tilesHtml = `
@@ -1775,11 +1757,11 @@ function renderCombinedScoutData(num) {
   let matchRowsHtml = '';
   const matchSource = (view === 'combined' || view === '6328') && d2 ? '6328'
                     : d1 ? '1073' : null;
+  const showEventBadge = !S.eventFilter || S.eventFilter === 'all';
 
   if (matchSource === '1073') {
-    const d = d1;
     const fmt2 = v => v % 1 === 0 ? v : v.toFixed(1);
-    matchRowsHtml = d.matches.map((m,i) => `
+    matchRowsHtml = d1.matches.map((m,i) => `
     <div class="scout-match-row">
       <span class="scout-match-num">Match ${i+1}</span>
       <span class="scout-match-seg" style="color:#60a5fa;">${fmt2(m.auto)} auto</span>
@@ -1788,13 +1770,14 @@ function renderCombinedScoutData(num) {
       <span class="scout-match-total">${fmt2(m.total)}</span>
     </div>`).join('');
   } else if (matchSource === '6328') {
-    const d = d2;
-    matchRowsHtml = d.matches.map(m => {
+    matchRowsHtml = d2Matches.map(m => {
       const stateStyle = m.state && m.state !== 'No Issue' && m.state !== '' ? 'color:#f87171;' : 'color:var(--muted);';
       const commentHtml = m.comment ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;font-style:italic;">${escHtml(m.comment)}</div>` : '';
+      const eventBadge = showEventBadge && m.event ? `<span style="font-size:10px;color:var(--muted);background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:4px;white-space:nowrap;">${m.event.toUpperCase()}</span>` : '';
       return `<div style="background:rgba(255,255,255,0.03);border-radius:7px;padding:7px 10px;margin-bottom:5px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <span style="font-size:12px;font-weight:700;color:#a78bfa;white-space:nowrap;">M${escHtml(m.match)}</span>
+          ${eventBadge}
           <span style="font-size:12px;font-weight:700;color:var(--text);">${rnd(m.total)} pts</span>
           ${m.state&&m.state!=='No Issue'&&m.state!==''?`<span style="font-size:11px;${stateStyle};flex:1;text-align:right;white-space:nowrap;">${escHtml(m.state)}</span>`:'<span style="flex:1;"></span>'}
           ${m.driver!=null?`<span style="font-size:11px;color:var(--muted);white-space:nowrap;">⭐ ${m.driver.toFixed(1)}</span>`:''}
@@ -1806,7 +1789,7 @@ function renderCombinedScoutData(num) {
         </div>
         ${commentHtml}
       </div>`;
-    }).join('');
+    }).join('') || '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No matches for this event.</div>';
   }
 
   const borderColor = view==='1073' ? 'rgba(34,197,94,0.2)' : view==='6328' ? 'rgba(167,139,250,0.2)' : 'rgba(245,166,35,0.2)';
@@ -1820,6 +1803,7 @@ function renderCombinedScoutData(num) {
       ${tabsHtml}
     </div>
     <div style="background:var(--card);border-radius:12px;padding:16px;border:1px solid ${borderColor};">
+      ${eventTabsHtml}
       ${tilesHtml}
       ${matchRowsHtml ? `
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">${showMatchHeader&&matchSource?matchLabel:'Match Breakdown'}</div>
@@ -1827,29 +1811,259 @@ function renderCombinedScoutData(num) {
       ${!hasBoth ? `
       <div style="margin-top:12px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px dashed rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <span style="font-size:11px;color:var(--muted);">${!d1 ? '🟢 Load <b style="color:#22c55e;">1073 Scout Data</b> to compare' : '🟣 Load <b style="color:#a78bfa;">6328 Scout Data</b> to compare'}</span>
-        <button onclick="document.getElementById('${!d1 ? 'scout-file-hdr' : 'davescout-file-hdr'}').click()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:var(--muted);font-size:11px;cursor:pointer;white-space:nowrap;">+ Load</button>
+        <button onclick="document.getElementById('scout-hdr-input').click()" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:var(--muted);font-size:11px;cursor:pointer;white-space:nowrap;">+ Load</button>
       </div>` : ''}
     </div>
   </div>`;
 }
 
-// Keep old renderScoutData/renderOwnScoutData as unused stubs (called nowhere now)
+// ════════════════════════════════════════════════════
+//  UNIFIED SCOUT FILE ENGINE
+// ════════════════════════════════════════════════════
 
-// ════════════════════════════════════════════════════
-//  OWN SCOUT CSV IMPORT (6328 match data)
-// ════════════════════════════════════════════════════
-function loadOwnScoutCSV(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      parseOwnScoutCSV(e.target.result);
-      render();
-    } catch(err) { alert('Failed to parse scout data: ' + err.message); }
-  };
-  reader.readAsText(file, 'utf-8');
+// Source color palette (cycles through for multiple files)
+const SOURCE_COLORS = ['#22c55e','#a78bfa','#60a5fa','#f59e0b','#f87171','#34d399','#c084fc'];
+
+function renderSourceChips() {
+  if (!S.loadedSources.length) return '';
+  return S.loadedSources.map(src => `
+    <span class="source-chip">
+      <span class="source-chip-dot" style="background:${src.color};"></span>
+      <span style="color:var(--text);">${escHtml(src.shortName)}</span>
+      <span style="color:var(--muted);font-weight:400;"> · ${src.type==='agg'?'aggregated':'per-match'} · ${src.teamCount} teams</span>
+      ${src.events.length ? `<span style="color:var(--muted);font-weight:400;font-size:10px;"> · ${src.events.map(e=>e.toUpperCase()).join(', ')}</span>` : ''}
+      <button class="source-chip-remove" onclick="removeScoutSource('${src.id}')">✕</button>
+    </span>`).join('');
 }
+
+// Entry point: called from file input onchange (single or multi)
+function loadScoutFiles(input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  // Clear the input so same file can be re-loaded if needed
+  input.value = '';
+  processFileQueue(files, 0);
+}
+
+// Also keep old name as alias so stale references don't break
+const loadScoutCSV    = (input) => loadScoutFiles(input);
+const loadOwnScoutCSV = (input) => loadScoutFiles(input);
+
+function handleScoutDrop(event) {
+  event.preventDefault();
+  const files = Array.from(event.dataTransfer?.files || [])
+    .filter(f => /\.(csv|tsv|txt)$/i.test(f.name));
+  if (files.length) processFileQueue(files, 0);
+}
+
+// Process files one by one (FileReader is async — must chain)
+function processFileQueue(files, idx) {
+  if (idx >= files.length) { render(); return; }
+  const file = files[idx];
+  // Step 1: read first 4 bytes to detect encoding
+  const bomReader = new FileReader();
+  bomReader.onload = (e) => {
+    const bom = new Uint8Array(e.target.result);
+    const enc = (bom[0]===0xFF&&bom[1]===0xFE)||(bom[0]===0xFE&&bom[1]===0xFF) ? 'utf-16' : 'utf-8';
+    // Step 2: read full file with correct encoding
+    const textReader = new FileReader();
+    textReader.onload = (e2) => {
+      try {
+        const text = e2.target.result;
+        const type = detectCSVType(text);
+        if (!type) { alert('Could not detect file type for: ' + file.name + '\nExpected a 1073 Tableau export or 6328 match data CSV.'); }
+        else {
+          const id = 'src_' + Date.now() + '_' + idx;
+          const color = SOURCE_COLORS[S.loadedSources.length % SOURCE_COLORS.length];
+          if (type === 'agg')      mergeAggCSV(text, id, file.name, color);
+          else                     mergePerMatchCSV(text, id, file.name, color);
+        }
+      } catch(err) { alert('Error parsing ' + file.name + ': ' + err.message); }
+      // Move to next file
+      processFileQueue(files, idx + 1);
+    };
+    textReader.readAsText(file, enc);
+  };
+  bomReader.readAsArrayBuffer(file.slice(0, 4));
+}
+
+// Detect CSV type from its content
+function detectCSVType(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const firstLine = text.split(/\r?\n/)[0];
+  const isTabDelim = firstLine.includes('\t');
+  const headers = isTabDelim
+    ? firstLine.split('\t').map(h => h.trim().replace(/^"|"$/g,''))
+    : parseCSVLine(firstLine);
+  const has = (...names) => names.some(n => headers.some(h => h.toLowerCase().includes(n.toLowerCase())));
+  // Per-match (6328-style): has Event column + AutoPoints + BotStateText
+  if (has('AutoPoints') && has('Event') && has('BotStateText')) return 'perMatch';
+  // Aggregated (1073-style): tab-delimited or has Match Count / Average Total
+  if (isTabDelim || has('Match Count') || has('Average Total')) return 'agg';
+  // Best-effort for other aggregated CSVs
+  if (has('Team') && (has('Total') || has('Tele') || has('Auto'))) return 'agg';
+  return null;
+}
+
+// Merge aggregated (1073-style) CSV into S.scoutData
+function mergeAggCSV(text, id, filename, color) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim().split('\n');
+  if (lines.length < 2) return;
+  const delim = lines[0].includes('\t') ? '\t' : ',';
+  const headers = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g,''));
+  const ci = n => headers.findIndex(h => h.toLowerCase().includes(n.toLowerCase()));
+  const teamIdx = ci('team'), autoFuel = ci('auto fuel'), autoClmb = ci('auto climb');
+  const teleFuel = ci('tele fuel'), endClmb = ci('endgame climb'), totalIdx = ci('total points');
+  if (teamIdx === -1) throw new Error('No Team column');
+  const rawData = {};
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split(delim).map(c => c.trim().replace(/^"|"$/g,''));
+    const num = parseInt(row[teamIdx]);
+    if (isNaN(num)) continue;
+    const auto  = (autoFuel>=0?+row[autoFuel]||0:0)+(autoClmb>=0?+row[autoClmb]||0:0);
+    const tele  = teleFuel>=0 ? +row[teleFuel]||0 : 0;
+    const end   = endClmb>=0  ? +row[endClmb] ||0 : 0;
+    const total = totalIdx>=0 ? +row[totalIdx]||0 : 0;
+    if (!rawData[num]) rawData[num] = { auto:[], tele:[], end:[], total:[] };
+    rawData[num].auto.push(auto); rawData[num].tele.push(tele);
+    rawData[num].end.push(end);   rawData[num].total.push(total);
+  }
+  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+  const parsed = {};
+  for (const [num, d] of Object.entries(rawData)) {
+    parsed[+num] = {
+      matchCount: d.total.length,
+      avgAuto: avg(d.auto), avgTele: avg(d.tele), avgEnd: avg(d.end), avgTotal: avg(d.total),
+      peak: Math.max(...d.total),
+      matches: d.total.map((tot,i) => ({ match:i+1, auto:d.auto[i], tele:d.tele[i], end:d.end[i], total:tot })),
+    };
+    // Merge into global S.scoutData (weighted average by match count)
+    const existing = S.scoutData[+num];
+    if (!existing) {
+      S.scoutData[+num] = { ...parsed[+num] };
+    } else {
+      // Append matches and recompute
+      const allMatches = [...existing.matches, ...parsed[+num].matches];
+      const n = allMatches.length;
+      S.scoutData[+num] = {
+        matchCount: n,
+        avgAuto:  allMatches.reduce((s,m)=>s+m.auto,0)/n,
+        avgTele:  allMatches.reduce((s,m)=>s+m.tele,0)/n,
+        avgEnd:   allMatches.reduce((s,m)=>s+m.end,0)/n,
+        avgTotal: allMatches.reduce((s,m)=>s+m.total,0)/n,
+        peak:     Math.max(...allMatches.map(m=>m.total)),
+        matches:  allMatches,
+      };
+    }
+  }
+  const shortName = filename.replace(/\.csv$/i,'').replace(/_/g,' ').substring(0,28);
+  S.loadedSources.push({ id, name: filename, shortName, type:'agg', color, teamCount: Object.keys(parsed).length, matchCount: Object.values(parsed).reduce((s,t)=>s+t.matchCount,0), events:[], rawData: parsed });
+}
+
+// Merge per-match (6328-style) CSV into S.ownScoutData
+function mergePerMatchCSV(text, id, filename, color) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return;
+  const headers = parseCSVLine(lines[0]);
+  const col = name => headers.indexOf(name);
+  const iTeam=col('Team'), iMatch=col('Match'), iEvent=col('Event');
+  const iAuto=col('AutoPoints'), iTele=col('TelePoints'), iClimb=col('TeleClimbPoints'), iTotal=col('TotalPoints');
+  const iAutoPct=col('AutoPointsContrabution'), iTelePct=col('TelePointsContrabution'), iTotPct=col('TotalPointsContrabution');
+  const iDriver=col('DriverRating'), iState=col('BotStateText'), iComment=col('Comment');
+  if (iTeam === -1) throw new Error('Could not find Team column — is this the right file?');
+  const byTeam = {};
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCSVLine(lines[i]);
+    const team = parseInt(row[iTeam]);
+    if (isNaN(team)) continue;
+    if (!byTeam[team]) byTeam[team] = [];
+    byTeam[team].push({
+      match:    row[iMatch] || '?',
+      event:    iEvent>=0 ? (row[iEvent]||'').toLowerCase() : '',
+      auto:     parseFloat(row[iAuto])    || 0,
+      tele:     parseFloat(row[iTele])    || 0,
+      climb:    parseFloat(row[iClimb])   || 0,
+      total:    parseFloat(row[iTotal])   || 0,
+      autoPct:  parseFloat(row[iAutoPct]) || 0,
+      telePct:  parseFloat(row[iTelePct]) || 0,
+      totPct:   parseFloat(row[iTotPct])  || 0,
+      driver:   row[iDriver] ? parseFloat(row[iDriver]) : null,
+      state:    row[iState]  || '',
+      comment:  row[iComment]|| '',
+    });
+  }
+  const allEvents = new Set();
+  const parsed = {};
+  for (const [team, matches] of Object.entries(byTeam)) {
+    matches.forEach(m => { if (m.event) allEvents.add(m.event); });
+    parsed[+team] = matches;
+  }
+  // Merge into S.ownScoutData (append matches per team, recompute averages)
+  for (const [team, newMatches] of Object.entries(parsed)) {
+    const existing = S.ownScoutData[+team];
+    const allMatches = existing ? [...existing.matches, ...newMatches] : [...newMatches];
+    rebuildTeamOwnStats(+team, allMatches);
+  }
+  const matchCount = Object.values(parsed).reduce((s,m)=>s+m.length,0);
+  const shortName = filename.replace(/\.csv$/i,'').replace(/_/g,' ').substring(0,28);
+  S.loadedSources.push({ id, name: filename, shortName, type:'perMatch', color, teamCount: Object.keys(parsed).length, matchCount, events:[...allEvents].sort(), rawData: parsed });
+}
+
+function rebuildTeamOwnStats(team, allMatches) {
+  const n = allMatches.length;
+  const avg = fn => allMatches.reduce((s,m)=>s+fn(m),0)/n;
+  const drs = allMatches.map(m=>m.driver).filter(v=>v!=null);
+  S.ownScoutData[team] = {
+    matchCount: n,
+    avgAuto:   avg(m=>m.auto),
+    avgTele:   avg(m=>m.tele),
+    avgClimb:  avg(m=>m.climb),
+    avgTotal:  avg(m=>m.total),
+    peak:      Math.max(...allMatches.map(m=>m.total)),
+    avgDriver: drs.length ? drs.reduce((s,v)=>s+v,0)/drs.length : null,
+    matches:   allMatches.sort((a,b)=>parseInt(a.match)-parseInt(b.match)),
+  };
+}
+
+// Remove a source and rebuild merged data from scratch
+function removeScoutSource(id) {
+  S.loadedSources = S.loadedSources.filter(s => s.id !== id);
+  S.scoutData    = {};
+  S.ownScoutData = {};
+  for (const src of S.loadedSources) {
+    if (src.type === 'agg') {
+      // Re-merge from stored rawData
+      for (const [num, stats] of Object.entries(src.rawData)) {
+        const existing = S.scoutData[+num];
+        if (!existing) { S.scoutData[+num] = { ...stats }; }
+        else {
+          const allMatches = [...existing.matches, ...stats.matches];
+          const n = allMatches.length;
+          S.scoutData[+num] = {
+            matchCount: n, peak: Math.max(...allMatches.map(m=>m.total)),
+            avgAuto:  allMatches.reduce((s,m)=>s+m.auto,0)/n,
+            avgTele:  allMatches.reduce((s,m)=>s+m.tele,0)/n,
+            avgEnd:   allMatches.reduce((s,m)=>s+m.end,0)/n,
+            avgTotal: allMatches.reduce((s,m)=>s+m.total,0)/n,
+            matches:  allMatches,
+          };
+        }
+      }
+    } else {
+      for (const [team, newMatches] of Object.entries(src.rawData)) {
+        const existing = S.ownScoutData[+team];
+        const allMatches = existing ? [...existing.matches, ...newMatches] : [...newMatches];
+        rebuildTeamOwnStats(+team, allMatches);
+      }
+    }
+  }
+  render();
+}
+
+// Legacy alias — old code still calls parseScoutCSV for the 1073 path
+function parseScoutCSV(text) { mergeAggCSV(text, 'src_legacy_' + Date.now(), '1073 data', '#22c55e'); }
 
 function parseCSVLine(line) {
   // Proper CSV parser: handles quoted fields, embedded commas, escaped quotes ("")
@@ -1874,124 +2088,6 @@ function parseCSVLine(line) {
     }
   }
   return fields;
-}
-
-function parseOwnScoutCSV(text) {
-  // Strip UTF-8 BOM if present
-  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (!lines.length) return;
-  // Parse header row with proper CSV parser (fields may be quoted)
-  const headers = parseCSVLine(lines[0]);
-  const col = name => headers.indexOf(name);
-  const iTeam    = col('Team');
-  const iMatch   = col('Match');
-  // Use actual robot point columns, not *Contrabution (those are alliance %)
-  const iAuto    = col('AutoPoints');
-  const iTele    = col('TelePoints');
-  const iClimb   = col('TeleClimbPoints');
-  const iTotal   = col('TotalPoints');
-  // Also grab contribution % for display as a secondary metric
-  const iAutoPct = col('AutoPointsContrabution');
-  const iTelePct = col('TelePointsContrabution');
-  const iTotPct  = col('TotalPointsContrabution');
-  const iDriver  = col('DriverRating');
-  const iState   = col('BotStateText');
-  const iComment = col('Comment');
-  if (iTeam === -1) throw new Error('Could not find Team column — is this the right file?');
-  const byTeam   = {};
-  for (let i = 1; i < lines.length; i++) {
-    const row = parseCSVLine(lines[i]);
-    const team = parseInt(row[iTeam]);
-    if (isNaN(team)) continue;
-    if (!byTeam[team]) byTeam[team] = [];
-    byTeam[team].push({
-      match:    row[iMatch] || '?',
-      auto:     parseFloat(row[iAuto])    || 0,
-      tele:     parseFloat(row[iTele])    || 0,
-      climb:    parseFloat(row[iClimb])   || 0,
-      total:    parseFloat(row[iTotal])   || 0,
-      autoPct:  parseFloat(row[iAutoPct]) || 0,
-      telePct:  parseFloat(row[iTelePct]) || 0,
-      totPct:   parseFloat(row[iTotPct])  || 0,
-      driver:  row[iDriver] ? parseFloat(row[iDriver]) : null,
-      state:   row[iState]   || '',
-      comment: row[iComment] || ''
-    });
-  }
-  const result = {};
-  for (const [team, matches] of Object.entries(byTeam)) {
-    const n    = matches.length;
-    const avg  = arr => arr.reduce((s,v)=>s+v,0)/n;
-    const tots = matches.map(m=>m.total);
-    const drs  = matches.map(m=>m.driver).filter(v=>v!=null);
-    result[parseInt(team)] = {
-      matchCount: n,
-      avgAuto:    avg(matches.map(m=>m.auto)),
-      avgTele:    avg(matches.map(m=>m.tele)),
-      avgClimb:   avg(matches.map(m=>m.climb)),
-      avgTotal:   avg(tots),
-      peak:       Math.max(...tots),
-      avgDriver:  drs.length ? drs.reduce((s,v)=>s+v,0)/drs.length : null,
-      matches:    matches.sort((a,b)=>parseInt(a.match)-parseInt(b.match))
-    };
-  }
-  S.ownScoutData = result;
-}
-
-function renderOwnScoutData(num) {
-  const d = S.ownScoutData[num];
-  if (!d) return '';
-  const pct = v => v != null ? Math.round(v) : '—';
-  const driverLabel = d.avgDriver != null ? ['','Avoid','Below avg','Average','Good','Elite'][Math.round(d.avgDriver)] || d.avgDriver.toFixed(1) : null;
-  const matchRows = d.matches.map(m => {
-    const stateStyle = m.state && m.state !== 'No Issue' ? 'color:#f87171;' : 'color:var(--muted);';
-    const commentHtml = m.comment ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;font-style:italic;">${escHtml(m.comment)}</div>` : '';
-    return `<div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;margin-bottom:6px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:12px;font-weight:700;color:#a78bfa;">M${escHtml(m.match)}</span>
-        <span style="font-size:12px;font-weight:700;color:var(--text);">${pct(m.total)} pts</span>
-        <span style="font-size:11px;${stateStyle}">${escHtml(m.state||'')}</span>
-        ${m.driver!=null?`<span style="font-size:11px;color:var(--muted);">Driver ${m.driver.toFixed(1)}</span>`:''}
-      </div>
-      <div style="display:flex;gap:10px;margin-top:4px;font-size:11px;color:var(--muted);">
-        <span>Auto <b style="color:var(--text);">${pct(m.auto)}</b></span>
-        <span>Tele <b style="color:var(--text);">${pct(m.tele)}</b></span>
-        <span>Climb <b style="color:var(--text);">${pct(m.climb)}</b></span>
-      </div>
-      ${commentHtml}
-    </div>`;
-  }).join('');
-  return `
-  <div class="own-scout-section">
-    <div class="section-title" style="color:#a78bfa;">🏷 6328 Scout Data · ${d.matchCount} match${d.matchCount!==1?'es':''}</div>
-    <div style="background:var(--card);border-radius:12px;padding:16px;border:1px solid rgba(167,139,250,0.2);">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <div style="flex:1;min-width:80px;background:rgba(167,139,250,0.08);border-radius:8px;padding:10px;text-align:center;">
-          <div style="font-size:22px;font-weight:800;color:#a78bfa;">${pct(d.avgTotal)}</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Avg Total</div>
-        </div>
-        <div style="flex:1;min-width:80px;background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--text);">${pct(d.avgAuto)}</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Avg Auto</div>
-        </div>
-        <div style="flex:1;min-width:80px;background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--text);">${pct(d.avgTele)}</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Avg Tele</div>
-        </div>
-        <div style="flex:1;min-width:80px;background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--text);">${pct(d.peak)}</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Peak</div>
-        </div>
-        ${d.avgDriver!=null?`<div style="flex:1;min-width:80px;background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;text-align:center;">
-          <div style="font-size:18px;font-weight:700;color:var(--gold);">${d.avgDriver.toFixed(1)}</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">${driverLabel||'Driver'}</div>
-        </div>`:''}
-      </div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">Match Breakdown</div>
-      ${matchRows}
-    </div>
-  </div>`;
 }
 
 // ════════════════════════════════════════════════════
